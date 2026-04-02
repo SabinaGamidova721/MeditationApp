@@ -102,9 +102,10 @@ export default function DetailsScreen({ route }: any) {
           <TouchableOpacity
             key={d}
             style={[styles.btn, { backgroundColor: theme.card }]}
-            onPress={() =>
-              navigation.navigate("Player", { duration: d * 60 })
-            }
+            // onPress={() =>
+            //   navigation.navigate("Player", { duration: d * 60 })
+            // }
+            onPress={() => selectPreset(d)}
           >
             <Text style={{ color: theme.text }}>{d} min</Text>
           </TouchableOpacity>
