@@ -8,8 +8,8 @@ export const CURRENT_USER = new User(
   new Date(),
 
   undefined,
-  12,   // sessions
-  340,  // minutes
-  5,    // streak
-  2     // level
+  0, // sessions
+  0, // minutes
+  0, // streak
+  1  // level
 );

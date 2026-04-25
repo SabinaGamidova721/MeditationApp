@@ -1,5 +1,5 @@
 export type RootStackParamList = {
   Meditations: undefined;
-  Details: { meditation: any };
-  Player: { duration: number };
+  Details: { meditationId: string };
+  Player: { meditationId: string; duration: number };
 };

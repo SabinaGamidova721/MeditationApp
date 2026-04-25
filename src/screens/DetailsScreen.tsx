@@ -3,10 +3,13 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  ActivityIndicator,
 } from "react-native";
-import { useState, useContext } from "react";
+import { useState, useEffect } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { AppContext } from "../context/AppContext";
+import { useAppContext } from "../context/AppContext";
+import { meditationRepository } from "../repositories/meditationRepository";
+import { Meditation } from "../models/Meditation";
 
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../types/navigation";
@@ -14,14 +17,43 @@ import { RootStackParamList } from "../types/navigation";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function DetailsScreen({ route }: any) {
-  const { meditation } = route.params;
+  const { meditationId } = route.params;
   const navigation = useNavigation<NavigationProp>();
-  const { theme } = useContext(AppContext);
+  const { theme } = useAppContext();
 
+  const [meditation, setMeditation] = useState<Meditation | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null);
 
   const [minutes, setMinutes] = useState(0);
   const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    void loadMeditation();
+  }, [meditationId]);
+
+  const loadMeditation = async () => {
+    setIsLoading(true);
+
+    const localItem = await meditationRepository.getCachedMeditationById(
+      meditationId
+    );
+    setMeditation(localItem);
+
+    try {
+      const remoteItem = await meditationRepository.refreshMeditationById(
+        meditationId
+      );
+
+      if (remoteItem) {
+        setMeditation(remoteItem);
+      }
+    } catch (e) {
+      console.log("Refresh meditation error", e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const selectPreset = (min: number) => {
     setSelectedDuration(min);
@@ -30,29 +62,29 @@ export default function DetailsScreen({ route }: any) {
   };
 
   const addMinute = () => {
-    if (minutes < 59) setMinutes(minutes + 1);
+    if (minutes < 59) setMinutes((prev) => prev + 1);
   };
 
   const removeMinute = () => {
-    if (minutes > 0) setMinutes(minutes - 1);
+    if (minutes > 0) setMinutes((prev) => prev - 1);
   };
 
   const addSecond = () => {
     if (minutes === 59 && seconds === 50) return;
 
     if (seconds === 50) {
-      setMinutes(minutes + 1);
+      setMinutes((prev) => prev + 1);
       setSeconds(0);
     } else {
-      setSeconds(seconds + 10);
+      setSeconds((prev) => prev + 10);
     }
   };
 
   const removeSecond = () => {
     if (seconds > 0) {
-      setSeconds(seconds - 10);
+      setSeconds((prev) => prev - 10);
     } else if (minutes > 0) {
-      setMinutes(minutes - 1);
+      setMinutes((prev) => prev - 1);
       setSeconds(50);
     }
   };
@@ -64,21 +96,40 @@ export default function DetailsScreen({ route }: any) {
 
   const totalSeconds = minutes * 60 + seconds;
 
+  if (isLoading && !meditation) {
+    return (
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: theme.bg, justifyContent: "center" },
+        ]}
+      >
+        <ActivityIndicator size="large" color={theme.accent} />
+      </View>
+    );
+  }
+
+  if (!meditation) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.bg }]}>
+        <Text style={{ color: theme.text }}>Meditation not found</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
       <View style={styles.header}>
         {selectedDuration === null ? (
-          <TouchableOpacity
-            onPress={() => navigation.navigate("Meditations" as never)}
-          >
+          <TouchableOpacity onPress={() => navigation.goBack()}>
             <Text style={[styles.headerBtn, { color: theme.accent }]}>
-              ← Home
+              ← Back
             </Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity onPress={() => setSelectedDuration(null)}>
             <Text style={[styles.headerBtn, { color: theme.accent }]}>
-              ← Back
+              ← Presets
             </Text>
           </TouchableOpacity>
         )}
@@ -88,9 +139,7 @@ export default function DetailsScreen({ route }: any) {
         {meditation.title}
       </Text>
 
-      <Text style={{ color: theme.text }}>
-        {meditation.description}
-      </Text>
+      <Text style={{ color: theme.sub }}>{meditation.description}</Text>
 
       {selectedDuration === null ? (
         <>
@@ -98,18 +147,15 @@ export default function DetailsScreen({ route }: any) {
             Choose duration:
           </Text>
 
-        {meditation.durations.map((d: number) => (
-          <TouchableOpacity
-            key={d}
-            style={[styles.btn, { backgroundColor: theme.card }]}
-            // onPress={() =>
-            //   navigation.navigate("Player", { duration: d * 60 })
-            // }
-            onPress={() => selectPreset(d)}
-          >
-            <Text style={{ color: theme.text }}>{d} min</Text>
-          </TouchableOpacity>
-        ))}
+          {meditation.durations.map((d: number) => (
+            <TouchableOpacity
+              key={d}
+              style={[styles.optionBtn, { backgroundColor: theme.card }]}
+              onPress={() => selectPreset(d)}
+            >
+              <Text style={{ color: theme.text }}>{d} min</Text>
+            </TouchableOpacity>
+          ))}
         </>
       ) : (
         <>
@@ -119,12 +165,18 @@ export default function DetailsScreen({ route }: any) {
 
           <View style={styles.adjustRow}>
             <View>
-              <TouchableOpacity onPress={removeMinute} style={styles.btn}>
-                <Text>-</Text>
+              <TouchableOpacity
+                onPress={removeMinute}
+                style={[styles.adjustBtn, { backgroundColor: theme.card }]}
+              >
+                <Text style={{ color: theme.text }}>-</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={removeSecond} style={styles.btn}>
-                <Text>-</Text>
+              <TouchableOpacity
+                onPress={removeSecond}
+                style={[styles.adjustBtn, { backgroundColor: theme.card }]}
+              >
+                <Text style={{ color: theme.text }}>-</Text>
               </TouchableOpacity>
             </View>
 
@@ -138,20 +190,23 @@ export default function DetailsScreen({ route }: any) {
             </View>
 
             <View>
-              <TouchableOpacity onPress={addMinute} style={styles.btn}>
-                <Text>+</Text>
+              <TouchableOpacity
+                onPress={addMinute}
+                style={[styles.adjustBtn, { backgroundColor: theme.card }]}
+              >
+                <Text style={{ color: theme.text }}>+</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={addSecond} style={styles.btn}>
-                <Text>+</Text>
+              <TouchableOpacity
+                onPress={addSecond}
+                style={[styles.adjustBtn, { backgroundColor: theme.card }]}
+              >
+                <Text style={{ color: theme.text }}>+</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <TouchableOpacity
-            onPress={reset}
-            style={[styles.resetBtn]}
-          >
+          <TouchableOpacity onPress={reset} style={[styles.resetBtn]}>
             <Text style={styles.resetText}>RESET</Text>
           </TouchableOpacity>
 
@@ -159,11 +214,12 @@ export default function DetailsScreen({ route }: any) {
             style={[styles.startBtn, { backgroundColor: theme.accent }]}
             onPress={() =>
               navigation.navigate("Player", {
+                meditationId: meditation.id,
                 duration: totalSeconds,
               })
             }
           >
-            <Text style={{ color: "#fff" }}>START</Text>
+            <Text style={{ color: "#fff", fontWeight: "600" }}>START</Text>
           </TouchableOpacity>
         </>
       )}
@@ -188,10 +244,10 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     marginBottom: 10,
+    fontWeight: "700",
   },
 
-  option: {
-    backgroundColor: "#e5e7eb",
+  optionBtn: {
     padding: 16,
     borderRadius: 12,
     marginTop: 10,
@@ -204,11 +260,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  btn: {
-    backgroundColor: "#d1d5db",
+  adjustBtn: {
     padding: 12,
     borderRadius: 10,
     marginVertical: 5,
+    minWidth: 52,
+    alignItems: "center",
   },
 
   timeBlock: {

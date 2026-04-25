@@ -3,11 +3,12 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  Platform,
 } from "react-native";
-import { useEffect, useRef, useState, useContext } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Audio } from "expo-av";
 import { useNavigation } from "@react-navigation/native";
-import { AppContext } from "../context/AppContext";
+import { useAppContext } from "../context/AppContext";
 
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../types/navigation";
@@ -15,8 +16,8 @@ import { RootStackParamList } from "../types/navigation";
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
 export default function PlayerScreen({ route }: any) {
-  const { duration } = route.params;
-  const { theme, soundEnabled } = useContext(AppContext);
+  const { duration, meditationId } = route.params;
+  const { theme, soundEnabled, recordCompletedSession } = useAppContext();
   const navigation = useNavigation<NavigationProp>();
 
   const [time, setTime] = useState(duration);
@@ -28,55 +29,71 @@ export default function PlayerScreen({ route }: any) {
   const finishingRef = useRef(false);
 
   useEffect(() => {
-    startMusic();
-    startTimer();
+    void initializeScreen();
 
     const unsubscribe = navigation.addListener("beforeRemove", () => {
-      stopAll();
+      void stopAll();
     });
 
     return () => {
       unsubscribe();
-      stopAll();
+      void stopAll();
     };
   }, []);
+
+  const initializeScreen = async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+      });
+    } catch (e) {
+      console.log("Audio mode error", e);
+    }
+
+    if (soundEnabled) {
+      await startMusic();
+    }
+
+    startTimer();
+  };
 
   const startTimer = () => {
     intervalRef.current = setInterval(() => {
       setTime((t: number) => {
         if (t <= 1 && !finishingRef.current) {
           finishingRef.current = true;
-          finishMeditation();
+          void finishMeditation();
           return 0;
         }
+
         return t > 0 ? t - 1 : 0;
       });
     }, 1000);
   };
 
   const startMusic = async () => {
-    const { sound } = await Audio.Sound.createAsync(
-      require("../../assets/meditation.mp3"),
-      { isLooping: true, volume: 0 }
-    );
+    try {
+      console.log("Trying to start meditation music");
 
-    musicRef.current = sound;
-    await sound.playAsync();
+      const { sound } = await Audio.Sound.createAsync(
+        require("../../assets/meditation.mp3"),
+        {
+          isLooping: true,
+          volume: 0.6,
+          shouldPlay: true,
+        }
+      );
 
-    fadeIn(sound);
-  };
+      musicRef.current = sound;
 
-  const fadeIn = async (sound: any) => {
-    for (let v = 0; v <= 1; v += 0.05) {
-      await sound.setVolumeAsync(v);
-      await delay(80);
-    }
-  };
+      if (Platform.OS !== "web") {
+        await sound.playAsync();
+      }
 
-  const fadeOut = async (sound: any) => {
-    for (let v = 1; v >= 0; v -= 0.05) {
-      await sound.setVolumeAsync(v);
-      await delay(80);
+      console.log("Meditation music started");
+    } catch (e) {
+      console.log("Meditation music start error", e);
     }
   };
 
@@ -84,11 +101,17 @@ export default function PlayerScreen({ route }: any) {
     clearInterval(intervalRef.current);
 
     if (musicRef.current) {
-      await fadeOut(musicRef.current);
-      await musicRef.current.stopAsync();
-      await musicRef.current.unloadAsync();
-      musicRef.current = null;
+      try {
+        await musicRef.current.stopAsync();
+        await musicRef.current.unloadAsync();
+      } catch (e) {
+        console.log("Music stop error", e);
+      } finally {
+        musicRef.current = null;
+      }
     }
+
+    await recordCompletedSession(meditationId, duration);
 
     if (soundEnabled) {
       await playNotification();
@@ -98,20 +121,28 @@ export default function PlayerScreen({ route }: any) {
   };
 
   const playNotification = async () => {
-    if (notificationRef.current) return;
+    try {
+      console.log("Trying to play notification sound");
 
-    const { sound } = await Audio.Sound.createAsync(
-      require("../../assets/notification.mp3"),
-      { volume: 0 }
-    );
+      if (notificationRef.current) return;
 
-    notificationRef.current = sound;
+      const { sound } = await Audio.Sound.createAsync(
+        require("../../assets/notification.mp3"),
+        {
+          volume: 1,
+          shouldPlay: true,
+        }
+      );
 
-    await sound.playAsync();
+      notificationRef.current = sound;
 
-    for (let v = 0; v <= 1; v += 0.1) {
-      await sound.setVolumeAsync(v);
-      await delay(80);
+      if (Platform.OS !== "web") {
+        await sound.playAsync();
+      }
+
+      console.log("Notification sound played");
+    } catch (e) {
+      console.log("Notification sound error", e);
     }
   };
 
@@ -130,11 +161,10 @@ export default function PlayerScreen({ route }: any) {
         await notificationRef.current.unloadAsync();
         notificationRef.current = null;
       }
-    } catch {}
+    } catch (e) {
+      console.log("Stop audio error", e);
+    }
   };
-
-  const delay = (ms: number) =>
-    new Promise((res) => setTimeout(res, ms));
 
   const format = (t: number) => {
     const m = Math.floor(t / 60);
@@ -144,7 +174,6 @@ export default function PlayerScreen({ route }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      
       <View style={styles.topBar}>
         <TouchableOpacity
           onPress={async () => {
@@ -152,28 +181,20 @@ export default function PlayerScreen({ route }: any) {
             navigation.goBack();
           }}
         >
-          <Text style={[styles.navText, { color: theme.accent }]}>
-            ← Back
-          </Text>
+          <Text style={[styles.navText, { color: theme.accent }]}>← Back</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           onPress={async () => {
             await stopAll();
-            navigation.navigate("Meditations");
-            navigation.navigate("Player", { duration: 120 });
-            navigation.goBack();
+            navigation.popToTop();
           }}
         >
-          <Text style={[styles.navText, { color: theme.accent }]}>
-            Home
-          </Text>
+          <Text style={[styles.navText, { color: theme.accent }]}>Home</Text>
         </TouchableOpacity>
       </View>
 
-      <Text style={{ color: theme.text, fontSize: 60 }}>
-        {format(time)}
-      </Text>
+      <Text style={{ color: theme.text, fontSize: 60 }}>{format(time)}</Text>
 
       {finished && (
         <TouchableOpacity
@@ -188,7 +209,7 @@ export default function PlayerScreen({ route }: any) {
             navigation.goBack();
           }}
         >
-          <Text style={{ color: "#fff" }}>RESET</Text>
+          <Text style={{ color: "#fff", fontWeight: "600" }}>RESET</Text>
         </TouchableOpacity>
       )}
     </View>
